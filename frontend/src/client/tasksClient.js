@@ -33,13 +33,25 @@ export default class TasksClient {
         return parseInt(match[1], 10);
     }
 
-    async markTaskComplete(taskId) {
-        const response = await fetch(`${this.baseUrl}/tasks/mark-complete?id=${taskId}`, {
+    async markTaskComplete(taskId, completed) {
+        const response = await fetch(`${this.baseUrl}/tasks/mark-complete`, {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                id: taskId,
+                completed: completed,
+            }),
         });
 
         if (!response.ok) {
             throw new Error(`Failed to mark task as complete: ${response.statusText}`);
         }
+
+        const text = await response.text();
+        console.log('Server response:', text);
     }
+
+    
 }
