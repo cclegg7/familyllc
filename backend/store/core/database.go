@@ -3,7 +3,11 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -14,9 +18,53 @@ type Database interface {
 	Close() error
 }
 
+type Credentials struct {
+	Hostname string `json:"hostname"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Database string `json:"database"`
+}
+
+func readCredentialsFromFile(filename string) (*Credentials, error) {
+	_, callerFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("unable to determine caller")
+	}
+
+	dir := filepath.Dir(callerFile)
+	path := filepath.Join(dir, filename)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read credentials file at %s: %w", path, err)
+	}
+
+	var creds Credentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return nil, fmt.Errorf("failed to parse credentials file at %s: %w", path, err)
+	}
+
+	return &creds, nil
+}
+
 func NewDatabase() (Database, error) {
+	// Load credentials from file
+	creds, err := readCredentialsFromFile("credentials.json")
+	if err != nil {
+		fmt.Println("error loading credentials: %w", err)
+
+		// use pre-filled credentials
+		creds = &Credentials{
+			Hostname: hostname,
+			Username: username,
+			Password: password,
+			Database: database,
+		}
+	}
+	// fmt.Println("loaded credentials: %s", creds.Password)
+
 	// Define the data source name (DSN)
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s", username, password, hostname, database)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s", creds.Username, creds.Password, creds.Hostname, creds.Database)
 
 	// Open a connection to the database
 	db, err := sql.Open("mysql", dsn)

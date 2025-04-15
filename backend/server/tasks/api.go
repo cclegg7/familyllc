@@ -6,7 +6,6 @@ import (
 	"familyllc/store/tasks"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 type TasksApi struct {
@@ -23,6 +22,12 @@ func (h *TasksApi) RegisterEndpoints() {
 	http.HandleFunc("/tasks", h.handleGetTasks)
 	http.HandleFunc("/tasks/create", h.handleCreateTask)
 	http.HandleFunc("/tasks/mark-complete", h.handleMarkComplete)
+}
+
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }
 
 func (h *TasksApi) handleGetTasks(w http.ResponseWriter, r *http.Request) {
@@ -73,25 +78,32 @@ func (h *TasksApi) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TasksApi) handleMarkComplete(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	setCORSHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		// Handle the preflight request for CORS
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
-	taskIdStr := r.URL.Query().Get("id")
-	if taskIdStr == "" {
-		http.Error(w, "Task ID is required", http.StatusBadRequest)
+	ctx := r.Context()
+
+	var payload struct {
+		ID        uint64 `json:"id"`
+		Completed bool   `json:"completed"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, fmt.Sprintf("Error decoding request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	taskId, err := strconv.ParseUint(taskIdStr, 10, 64)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Invalid task ID: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	task, err := h.taskStore.GetTaskByID(ctx, taskId)
+	task, err := h.taskStore.GetTaskByID(ctx, payload.ID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error fetching task: %v", err), http.StatusInternalServerError)
 		return
@@ -102,12 +114,16 @@ func (h *TasksApi) handleMarkComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task.Complete = true
+	task.Complete = payload.Completed
 	err = h.taskStore.UpdateTask(ctx, task)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error marking task as complete: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error updating task: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Fprintf(w, "Task with ID %d marked as complete", task.ID)
+	status := "incomplete"
+	if task.Complete {
+		status = "complete"
+	}
+	fmt.Fprintf(w, "Task with ID %d marked as %s", task.ID, status)
 }
